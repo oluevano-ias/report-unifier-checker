@@ -1,0 +1,23 @@
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml" />
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml" />
+    <!-- https://docs.spring.io/spring-boot/docs/current/reference/html/boot-features-logging.html#_environment_properties -->
+    <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="nemo-api-custom-report-builder"/>
+    <springProperty scope="context" name="envProfiles" source="spring.profiles.active" defaultValue="-"/>
+
+    <springProfile name="localstandalone">
+        <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%date{HH:mm:ss.SSS} %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <logger name="com.unifier" level="INFO" />
+        <!--<logger name="org.hibernate.SQL" level="DEBUG" />
+        <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="DEBUG" />-->
+        <!-- <logger name="org.springframework.transaction" level="TRACE" /> -->
+        <root level="WARN">
+            <appender-ref ref="STDOUT" />
+        </root>
+    </springProfile>
+
+</configuration>

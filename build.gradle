@@ -1,0 +1,208 @@
+buildscript {
+    project.ext {
+        bootVersion = '2.1.5.RELEASE'
+        cloudVersion = '2.1.2.RELEASE'
+        securityVersion = '2.3.5.RELEASE'
+        securityOauth2Version = '2.3.3.RELEASE'
+    }
+    repositories {
+        // IAS repo has non-public third-party libraries we need for Impala JDBC
+        maven {
+            name 'IAS-public'
+            url "https://nexus.303net.net/repository/maven-public/"
+        }
+
+        maven { url "https://repo.maven.apache.org/maven2" }
+    }
+    dependencies {
+        classpath("org.springframework.boot:spring-boot-gradle-plugin:${project.bootVersion}")
+    }
+}
+
+
+plugins {
+    // JaCoCo is necessary to combine unit + integration tests into single sonar assessment
+    // https://blog.sonarsource.com/measure-coverage-by-integration-tests-with-sonar-updated/
+    id 'jacoco'
+    id "org.sonarqube" version "2.7"
+}
+
+apply plugin: 'java'
+apply plugin: 'groovy'
+apply plugin: 'maven'
+apply plugin: 'org.springframework.boot'
+apply plugin: 'idea'
+apply plugin: "io.spring.dependency-management"
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+configurations {
+    developmentOnly
+    runtimeClasspath {
+        extendsFrom developmentOnly
+    }
+}
+dependencyManagement {
+    imports {
+        mavenBom 'org.springframework.cloud:spring-cloud-dependencies:Greenwich.SR1'
+    }
+}
+
+repositories {
+    // IAS repo has non-public third-party libraries we need for Impala JDBC
+    maven {
+        name 'IAS-public'
+        url "https://nexus.303net.net/repository/maven-public/"
+    }
+
+    mavenCentral()
+
+    maven {
+        name 'jboss'
+        url 'http://repository.jboss.org/nexus/content/groups/public/'
+    }
+}
+dependencies {
+    compile group: 'com.jayway.jsonpath', name: 'json-path', version: '2.4.0'
+    compile group: 'org.codehaus.groovy', name: 'groovy-sql', version: '3.0.2'
+    //developmentOnly("org.springframework.boot:spring-boot-devtools")
+    compile group: 'io.vavr', name: 'vavr', version: '0.10.2'
+    compile group: 'com.google.crypto.tink', name: 'tink', version: '1.2.2'
+    // Spring Boot Group
+    compile "org.springframework.boot:spring-boot-starter-web:${project.bootVersion}"
+        runtime 'com.fasterxml.jackson.core:jackson-databind:2.9.9' // Override transitive dep to resolve CVE-2019-12086
+    //compile "org.springframework.boot:spring-boot-starter-actuator:${project.bootVersion}"
+
+    // Data Group
+    compile("org.springframework.boot:spring-boot-starter-data-jpa:${project.bootVersion}") {
+        exclude group:'org.apache.tomcat', module:'tomcat-jdbc' // We're using HikariCP
+    }
+    // Drivers Group
+    compile('mysql:mysql-connector-java:5.1.31')
+    //compile 'redis.clients:jedis:2.9.0' // Spring Data Redis no longer includes Jedis
+
+    // Logging Group
+    compile 'net.logstash.logback:logstash-logback-encoder:5.3' // for JSON logging for Logstash
+    // NOTE: Not yet caught up with ${project.cloudVersion}
+    //runtime "org.springframework.cloud:spring-cloud-starter-sleuth:2.1.1.RELEASE" // For microservice log event tracing/correlation
+
+    // Validation Group
+    compile 'javax.validation:validation-api:2.0.1.Final' // Make new JEE validators available
+    compile 'org.hibernate:hibernate-validator:6.0.15.Final' // For improved validators including Email
+    compile 'com.github.fge:json-schema-validator:2.2.6' // For JSON Schema validation
+
+    // Misc. Group
+    compile("org.springframework.boot:spring-boot-starter-aop:${project.bootVersion}")
+    compile 'org.modelmapper:modelmapper:2.3.4' // for Domain <-> DTO conversions
+    compile 'com.sendgrid:sendgrid-java:4.2.1'  // Most recent 4.4.1 has breaking API changes, revisit when there's time
+    compile 'org.freemarker:freemarker:2.3.28' // For generating email bodies from templates
+    compile 'org.yaml:snakeyaml:1.24' // for YML support in liquibase
+    compile group: 'org.codehaus.groovy', name: 'groovy-all', version: '2.4.17' // This project has both Main & Test Groovy
+
+    runtime "org.springframework.boot:spring-boot-starter-tomcat:${project.bootVersion}"
+
+    // Testing Group
+    testCompile 'org.springframework.security:spring-security-test'
+    testCompile 'org.spockframework:spock-core:1.3-groovy-2.4'
+    testCompile 'org.spockframework:spock-spring:1.3-groovy-2.4'
+    testCompile 'cglib:cglib-nodep:3.2.12' // For test mocking of non-interfaces
+    testCompile(group: 'org.springframework.boot', name: 'spring-boot-starter-test', version:"${project.bootVersion}") {
+        exclude(module: 'commons-logging')
+    }
+    testCompile 'org.codehaus.groovy.modules.http-builder:http-builder:0.7'
+    testRuntime 'com.h2database:h2:1.4.199'
+}
+
+configurations {
+    integrationTestCompile.extendsFrom testCompile
+    integrationTestRuntime.extendsFrom testRuntime
+
+    // Prevent slf4j classpath errors due to transitive dependencies from kafka test.
+    //testCompile.exclude group: 'ch.qos.logback'
+    testCompile.exclude group: 'org.slf4j', module: 'log4j-over-slf4j'
+    runtime.exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+    // runtime.exclude group: 'log4j', module: 'log4j'
+}
+
+sourceSets {
+    integrationTest {
+        java {
+            compileClasspath += main.output + test.output
+            runtimeClasspath += main.output + test.output
+            srcDir file('src/integration-test/java')
+        }
+        groovy {
+            compileClasspath += main.output + test.output
+            runtimeClasspath += main.output + test.output
+            srcDir file('src/integration-test/groovy')
+        }
+        resources.srcDir file('src/integration-test/resources')
+    }
+}
+
+task integrationTest(type: Test) {
+    systemProperties['spring.profiles.active'] = System.properties['spring.profiles.active'] ?: 'test'
+    group = 'verification'
+    description = 'Runs integration tests'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    outputs.upToDateWhen { false } // Always rerun integration tests
+}
+// Fully testing the app requires integrationTest to run
+check.dependsOn integrationTest
+integrationTest.mustRunAfter test // Unit tests first
+
+// Unit & Integration test tasks have different report outputs
+tasks.withType(Test) {
+    reports.html.destination = file("${reporting.baseDir}/${name}")
+}
+
+tasks.withType(JavaCompile) {
+    // Our usage of Spring Security's Method Security Expressions requires method parameter names to be compiled in (Java 8)
+    //  See: http://docs.spring.io/spring-security/site/docs/4.0.3.RELEASE/reference/htmlsingle/#access-control-using-preauthorize-and-postauthorize
+    options.compilerArgs << '-parameters'
+}
+
+// JaCoCo automatically instruments both the Unit + Integration Tests
+sonarqube {
+    // See: https://docs.sonarqube.org/display/SCAN/Analyzing+with+SonarQube+Scanner+for+Gradle
+    properties {
+        // Add JaCoCo Integration Test results to sonar
+        property "sonar.jacoco.itReportPath", "$buildDir/jacoco/integrationTest.exec"
+        // "sonar.host.url" = "http://localhost:9000" by default
+        property "sonar.host.url", "http://10.20.122.111:9000"
+    }
+}
+project.tasks["sonarqube"].dependsOn test,integrationTest
+
+bootJar {
+    mainClassName = "com.unifier.ReportUnifierCheckerApplication"
+    launchScript()
+}
+
+// Have bootRun use the dev Spring profile if another isn't specified
+bootRun {
+    systemProperties['spring.profiles.active'] = System.properties['spring.profiles.active'] ?: 'localstandalone'
+    jvmArgs=["-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=6003"]
+}
+
+// Have test task use the test Spring profile if another isn't specified
+test {
+    systemProperties['spring.profiles.active'] = System.properties['spring.profiles.active'] ?: 'test'
+}
+
+uploadArchives {
+    repositories {
+        mavenDeployer {
+            repository(url: nexusReleaseRepo) {
+                authentication(userName: nexusUsername, password: nexusPassword)
+            }
+
+            snapshotRepository(url: nexusSnapshotsRepo) {
+                authentication(userName: nexusUsername, password: nexusPassword)
+            }
+        }
+    }
+}
+

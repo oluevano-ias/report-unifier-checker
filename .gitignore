@@ -1,0 +1,10 @@
+.ci
+checkOnDemandResult.txt
+checkResult.txt
+.gradle
+.idea
+.DS_Store
+build
+classes
+*.iml
+/out/

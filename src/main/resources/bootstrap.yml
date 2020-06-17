@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: report-unifier-checker
+  profiles: localstandalone
+  cloud:
+    config:
+      enabled: false
